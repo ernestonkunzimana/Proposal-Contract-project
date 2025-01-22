@@ -16,7 +16,7 @@ contract ProposalContract {
         uint pass; // Number of pass votes
         uint hold; // Number of hold votes
         uint total_vote_to_end; // When the total votes in the proposal reaches this limit, proposal ends
-        string current_state; // This shows the current state of the proposal, whether it passes, fails, or is held
+        string current_state; // This shows the current state of the proposal, meaning whether it passes, fails, or is held
         bool is_active; // This shows if others can vote to our contract
         uint createdAt; // Timestamp when the proposal was created
         mapping(address => uint) voters; // Tracks who has voted and their vote type
@@ -75,10 +75,8 @@ contract ProposalContract {
         Proposal storage proposal = proposal_history[proposalId];
         uint256 total_vote = proposal.approve + proposal.reject + proposal.pass + proposal.hold;
 
-        // Validate the choice
         require(choice == 0 || choice == 1 || choice == 2 || choice == 3, "Invalid vote choice");
 
-        // Apply the vote
         if (choice == 1) {
             proposal.approve += 1;
         } else if (choice == 2) {
@@ -92,10 +90,8 @@ contract ProposalContract {
         proposal.voters[msg.sender] = choice;
         voted_addresses.push(msg.sender);
 
-        // Update the current state
         proposal.current_state = calculateCurrentState(proposalId);
 
-        // Check if the proposal should be closed
         if (total_vote + 1 >= proposal.total_vote_to_end) {
             proposal.is_active = false;
             voted_addresses = new address[](1);  // Reset the voted_addresses array
@@ -120,18 +116,14 @@ contract ProposalContract {
         uint256 pass = proposal.pass;
         uint256 hold = proposal.hold;
 
-        if (proposal.pass % 2 == 1) {
-            pass += 1;
-        }
-
-        pass = pass / 2;
-
-        if (approve > reject + pass && approve < hold) {
-            return "Held";
-        } else if (approve > reject + pass) {
+        if (approve > 2 * (reject + hold)) {
             return "Approved";
-        } else {
+        } else if (hold > (approve + reject)) {
+            return "Held";
+        } else if (reject > (approve + hold)) {
             return "Rejected";
+        } else {
+            return "Inconclusive";
         }
     }
 
