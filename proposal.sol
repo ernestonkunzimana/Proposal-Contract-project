@@ -1,6 +1,5 @@
-//this web3 space is nice but hard to make more out of it but i am grateful to work it ou
-// SPDX-License-Identifier: MIT
 
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.18;
 
 
