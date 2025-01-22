@@ -4,7 +4,9 @@ pragma solidity ^0.8.18;
 contract ProposalContract {
     address public owner;
     uint public proposalCount;
-    uint256 private counter; // This line is added
+    uint256 private counter;
+
+    address[] private voted_addresses;
 
     struct Proposal {
         string title; // Title of the proposal
@@ -21,40 +23,38 @@ contract ProposalContract {
 
     mapping(uint256 => Proposal) proposal_history; // Recordings of previous proposals
     mapping(uint => Proposal) public proposals;
-    mapping(address => bool) public admins; // Tracks admin addresses
 
     event ProposalCreated(uint256 proposalId, string title, string description, uint total_vote_to_end); // Event for proposal creation
     event VoteChanged(uint256 proposalId, address voter, uint oldVoteType, uint newVoteType); // Event for changing votes
+    event OwnerSet(address indexed oldOwner, address indexed newOwner); // Event for setting a new owner
 
     modifier onlyOwner() {
         require(msg.sender == owner, "Not the owner");
         _;
     }
 
-    modifier onlyAdmin() {
-        require(admins[msg.sender], "Not an admin");
+    modifier active(uint proposalId) {
+        require(proposal_history[proposalId].is_active == true, "The proposal is not active");
         _;
     }
 
-    modifier validVoteType(uint _voteType) {
-        require(_voteType == 1 || _voteType == 2 || _voteType == 3, "Invalid vote type");
+    modifier notVoted(uint proposalId) {
+        require(proposal_history[proposalId].voters[msg.sender] == 0, "You have already voted");
         _;
     }
 
     constructor() {
         owner = msg.sender;
-        admins[msg.sender] = true;
+        voted_addresses.push(msg.sender);
     }
 
-    function addAdmin(address _admin) public onlyOwner {
-        admins[_admin] = true;
+    function setOwner(address new_owner) external onlyOwner {
+        require(new_owner != address(0), "Invalid address");
+        emit OwnerSet(owner, new_owner);
+        owner = new_owner;
     }
 
-    function removeAdmin(address _admin) public onlyOwner {
-        admins[_admin] = false;
-    }
-
-    function create(string calldata _title, string calldata _description, uint256 _total_vote_to_end) external onlyAdmin {
+    function create(string calldata _title, string calldata _description, uint256 _total_vote_to_end) external onlyOwner {
         require(bytes(_title).length > 0, "Title cannot be empty");
         require(bytes(_description).length > 0, "Description cannot be empty");
 
@@ -70,58 +70,37 @@ contract ProposalContract {
         emit ProposalCreated(counter, _title, _description, _total_vote_to_end);
     }
 
-    function vote(uint _proposalId, uint _voteType) public validVoteType(_voteType) {
-        Proposal storage proposal = proposals[_proposalId];
-        require(proposal.is_active, "Proposal is not active");
-        require(proposal.voters[msg.sender] == 0, "You have already voted");
+    function vote(uint proposalId, uint8 choice) external active(proposalId) notVoted(proposalId) {
+        Proposal storage proposal = proposal_history[proposalId];
+        uint256 total_vote = proposal.approve + proposal.reject + proposal.pass;
 
-        if (_voteType == 1) {
-            proposal.approve++;
-        } else if (_voteType == 2) {
-            proposal.reject++;
-        } else if (_voteType == 3) {
-            proposal.pass++;
+        // Validate the choice
+        require(choice == 0 || choice == 1 || choice == 2, "Invalid vote choice");
+
+        // Apply the vote
+        if (choice == 1) {
+            proposal.approve += 1;
+        } else if (choice == 2) {
+            proposal.reject += 1;
+        } else if (choice == 0) {
+            proposal.pass += 1;
         }
 
-        proposal.voters[msg.sender] = _voteType;
+        proposal.voters[msg.sender] = choice;
+        voted_addresses.push(msg.sender);
 
-        if (proposal.approve + proposal.reject + proposal.pass >= proposal.total_vote_to_end) {
+        // Update the current state
+        proposal.current_state = calculateCurrentState(proposalId);
+
+        // Check if the proposal should be closed
+        if (total_vote + 1 >= proposal.total_vote_to_end) {
             proposal.is_active = false;
-            proposal.current_state = (proposal.approve > proposal.reject);
         }
     }
 
-    function changeVote(uint _proposalId, uint _newVoteType) public validVoteType(_newVoteType) {
-        Proposal storage proposal = proposals[_proposalId];
-        require(proposal.is_active, "Proposal is not active");
-        require(proposal.voters[msg.sender] != 0, "You have not voted yet");
-
-        uint oldVoteType = proposal.voters[msg.sender];
-
-        if (oldVoteType == 1) {
-            proposal.approve--;
-        } else if (oldVoteType == 2) {
-            proposal.reject--;
-        } else if (oldVoteType == 3) {
-            proposal.pass--;
-        }
-
-        if (_newVoteType == 1) {
-            proposal.approve++;
-        } else if (_newVoteType == 2) {
-            proposal.reject++;
-        } else if (_newVoteType == 3) {
-            proposal.pass++;
-        }
-
-        proposal.voters[msg.sender] = _newVoteType;
-
-        emit VoteChanged(_proposalId, msg.sender, oldVoteType, _newVoteType);
-
-        if (proposal.approve + proposal.reject + proposal.pass >= proposal.total_vote_to_end) {
-            proposal.is_active = false;
-            proposal.current_state = (proposal.approve > proposal.reject);
-        }
+    function calculateCurrentState(uint proposalId) internal view returns (bool) {
+        Proposal storage proposal = proposal_history[proposalId];
+        return proposal.approve > proposal.reject;
     }
 
     function getProposal(uint _proposalId) public view returns (string memory, string memory, uint, uint, uint, uint, bool, bool, uint) {
